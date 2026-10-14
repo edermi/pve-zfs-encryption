@@ -1,0 +1,96 @@
+---
+# SSH unlock for an encrypted rpool/ROOT: dropbear in the initramfs on a
+# static IP, where login runs zfsunlock and nothing else. The initramfs is
+# rebuilt only when something below changed.
+
+- name: Install dropbear-initramfs
+  ansible.builtin.apt:
+    name: dropbear-initramfs
+    install_recommends: false
+  notify: Rebuild initramfs
+
+- name: Read the keys allowed onto the host
+  ansible.builtin.slurp:
+    src: "{{ remote_unlock_authorized_keys_file }}"
+  register: remote_unlock_keys
+
+- name: Refuse to build an initramfs nobody can log into
+  ansible.builtin.assert:
+    that: remote_unlock_keys.content | b64decode is search('(?m)^([^#\s].* )?(ssh-|ecdsa-|sk-)')
+    fail_msg: "No SSH key in {{ remote_unlock_authorized_keys_file }}"
+    quiet: true
+
+- name: Mirror them into the initramfs
+  ansible.builtin.copy:
+    content: "{{ remote_unlock_keys.content | b64decode }}"
+    dest: /etc/dropbear/initramfs/authorized_keys
+    mode: "0600"
+  notify: Rebuild initramfs
+
+- name: Login runs zfsunlock only
+  ansible.builtin.lineinfile:
+    path: /etc/dropbear/initramfs/dropbear.conf
+    regexp: '^DROPBEAR_OPTIONS='
+    line: 'DROPBEAR_OPTIONS="-I 180 -j -k -s -p {{ remote_unlock_port }} -c zfsunlock"'
+  notify: Rebuild initramfs
+
+# PVE 9 pins NIC names (nic0, ...) with .link files in a directory that
+# doesn't make it into the initramfs. Without them the NIC has its kernel
+# name there and ip= points at an interface that doesn't exist.
+- name: Find pinned NIC names
+  ansible.builtin.find:
+    paths: /usr/local/lib/systemd/network
+    patterns: "*.link"
+  register: remote_unlock_links
+
+- name: Copy them where the initramfs picks them up
+  ansible.builtin.copy:
+    src: "{{ item.path }}"
+    dest: "/etc/systemd/network/{{ item.path | basename }}"
+    remote_src: true
+    mode: "0644"
+  loop: "{{ remote_unlock_links.files }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+  notify: Rebuild initramfs
+
+- name: Build the ip= kernel parameter from the bridge
+  vars:
+    bridge: "{{ ansible_facts[remote_unlock_bridge] }}"
+    port: "{{ bridge.interfaces | reject('match', '^(tap|veth|fwpr|fwln)') | first }}"
+  ansible.builtin.set_fact:
+    remote_unlock_ip: >-
+      ip={{ bridge.ipv4.address }}::{{ ansible_facts.default_ipv4.gateway }}:{{ bridge.ipv4.netmask
+      }}:{{ ansible_facts.hostname }}:{{ port }}:off
+
+# Both bootloaders get it; the one that isn't in use ignores its file.
+- name: Read the kernel command lines
+  ansible.builtin.slurp:
+    src: "{{ item }}"
+  loop:
+    - /etc/kernel/cmdline
+    - /etc/default/grub
+  register: remote_unlock_cmdlines
+  failed_when: false
+
+- name: Set ip= for systemd-boot
+  vars:
+    current: "{{ remote_unlock_cmdlines.results[0].content | b64decode }}"
+  ansible.builtin.copy:
+    content: "{{ (current.split() | reject('match', '^ip=') | list + [remote_unlock_ip]) | join(' ') }}\n"
+    dest: /etc/kernel/cmdline
+    mode: "0644"
+  when: remote_unlock_cmdlines.results[0].content is defined
+  notify: Refresh boot partitions
+
+- name: Set ip= for GRUB
+  vars:
+    grub: "{{ remote_unlock_cmdlines.results[1].content | b64decode }}"
+    current: >-
+      {{ grub | regex_search('^GRUB_CMDLINE_LINUX="(.*)"$', '\1', multiline=True) | default([''], true) | first }}
+  ansible.builtin.lineinfile:
+    path: /etc/default/grub
+    regexp: '^GRUB_CMDLINE_LINUX='
+    line: GRUB_CMDLINE_LINUX="{{ (current.split() | reject('match', '^ip=') | list + [remote_unlock_ip]) | join(' ') }}"
+  when: remote_unlock_cmdlines.results[1].content is defined
+  notify: Refresh boot partitions

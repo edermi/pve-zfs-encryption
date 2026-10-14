@@ -1,0 +1,18 @@
+namespace: edermi
+name: pve_zfs_encryption
+version: 1.0.0
+readme: README.md
+authors:
+  - Michael Eder
+description: SSH unlock (dropbear in the initramfs) for Proxmox VE hosts with a ZFS-encrypted root, plus the install-time encryption script.
+license:
+  - MIT
+tags:
+  - proxmox
+  - zfs
+  - encryption
+  - dropbear
+repository: https://github.com/edermi/pve-zfs-encryption
+dependencies: {}
+build_ignore:
+  - "*.tar.gz"

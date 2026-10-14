@@ -1,0 +1,10 @@
+---
+# Port dropbear listens on in the initramfs.
+remote_unlock_port: 2222
+
+# Bridge whose address, gateway and physical port the initramfs uses.
+remote_unlock_bridge: vmbr0
+
+# Keys allowed to reach the unlock prompt. By default the role mirrors
+# whatever may log into the host as root.
+remote_unlock_authorized_keys_file: /root/.ssh/authorized_keys
