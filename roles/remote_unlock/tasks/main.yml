@@ -56,12 +56,12 @@
 
 - name: Build the ip= kernel parameter from the bridge
   vars:
-    bridge: "{{ ansible_facts[remote_unlock_bridge] }}"
-    port: "{{ bridge.interfaces | reject('match', '^(tap|veth|fwpr|fwln)') | first }}"
+    remote_unlock_br: "{{ ansible_facts[remote_unlock_bridge] }}"
+    remote_unlock_nic: "{{ remote_unlock_br.interfaces | reject('match', '^(tap|veth|fwpr|fwln)') | first }}"
   ansible.builtin.set_fact:
     remote_unlock_ip: >-
-      ip={{ bridge.ipv4.address }}::{{ ansible_facts.default_ipv4.gateway }}:{{ bridge.ipv4.netmask
-      }}:{{ ansible_facts.hostname }}:{{ port }}:off
+      ip={{ remote_unlock_br.ipv4.address }}::{{ ansible_facts.default_ipv4.gateway }}:{{ remote_unlock_br.ipv4.netmask
+      }}:{{ ansible_facts.hostname }}:{{ remote_unlock_nic }}:off
 
 # Both bootloaders get it; the one that isn't in use ignores its file.
 - name: Read the kernel command lines

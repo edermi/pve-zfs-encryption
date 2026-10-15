@@ -51,7 +51,7 @@ prompt. The key list mirrors `/root/.ssh/authorized_keys`.
 collections:
   - name: https://github.com/edermi/pve-zfs-encryption.git
     type: git
-    version: v1.0.0
+    version: v1.0.1
 ```
 
 ```yaml
